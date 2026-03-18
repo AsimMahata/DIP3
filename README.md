@@ -1,4 +1,4 @@
-# Sem 6:DIP Project - 3 (Multilingual Abuse Detection)
+# Sem 6:DIP Project - 3 (Multilingual Abuse & Slang Detection)
 
 ## Rules
 
@@ -12,6 +12,6 @@
 |--------------------|--------------|
 | Aditya Raj*         | 2023UGCS051  |
 | Apoorva Singh      | 2023UGCS025  |
-| Mihir Ku           | 2023UGCS049  |
+| Mihir Kumar           | 2023UGCS049  |
 | Asim Kumar Mahata  | 2023UGCS050  |
 | Abhisekh Kumar     | 2023UGCS089  |
