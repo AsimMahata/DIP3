@@ -1,0 +1,6 @@
+venv/
+model/
+onnx_model/
+__pycache__/
+*.pyc
+.env

@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+transformers
+optimum[onnxruntime]
+onnxruntime
+torch
+lime
+streamlit
+matplotlib
+plotly
+pandas
+numpy
