@@ -1,7 +1,6 @@
 fastapi
 uvicorn
 transformers
-optimum[onnxruntime]
 onnxruntime
 torch
 lime
@@ -10,3 +9,7 @@ matplotlib
 plotly
 pandas
 numpy
+emoji
+langdetect
+onnxscript
+onnx
