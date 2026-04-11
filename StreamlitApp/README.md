@@ -1,81 +1,58 @@
-# Slang & Hate Speech Detection System
+# Multilingual Abuse Detection App
 
-This project is a high-performance web application designed to categorize text into various slang and hate speech classifications. It features a FastAPI backend powered by ONNX Runtime for extremely low-latency inference, and a Streamlit frontend providing real-time probability charting alongside LIME token attributions and Transformer attention heatmaps!
+This application uses a custom multi-task XLM-RoBERTa-Large model to perform binary toxicity detection and language identification (English, Hinglish, Banglish). 
 
-## Architecture Highlights
-* **Backend:** FastAPI (Python)
-* **Inference:** Hugging Face `transformers` converted to **ONNX Runtime** for blistering speeds.
-* **Explainability:** Features `lime_text` to show which tokens caused the prediction, and a base PyTorch loaded path to dynamically extract multi-head Self-Attention weights straight from the transformer architecture.
-* **Frontend:** Interactive Streamlit Dashboard with Plotly visuals.
+It features a **FastAPI backend** for efficient model inference (with ONNX support) and a **Streamlit frontend** with visual explainability tools (pipeline tracking, LIME token attribution, and Attention Heatmaps).
 
----
+## Prerequisites
+Before running, you must place the trained model files in the `model/` directory.
 
-## 🚀 Setup & Installation
+Ensure your `model/` folder contains exactly these files:
+- `config.json`
+- `heads.pt`
+- `model.safetensors`
+- `tokenizer.json`
+- `tokenizer_config.json`
 
-### 1. Clone the repository
-```bash
-git clone <your-repo-link>
-cd <your-repo-name>
-```
+## Setup & Running the App
 
-### 2. Prepare the Model Folders
-Because the ML models are extremely large, they are excluded from this repository. 
-You must place your raw Hugging Face PyTorch model into a folder named `model` in the root directory.
+Run these commands in your terminal inside the `StreamlitApp` directory.
 
-* Create a folder named `model` inside this root directory. 
-* Place your model files inside it (`config.json`, `model.safetensors`, `tokenizer.json`, etc.)
-
-### 3. Setup Virtual Environment
-It is highly recommended to isolate the dependencies. By default, the startup script expects a `venv` environment.
-```bash
+### 1. Create a Virtual Environment
+```powershell
 python -m venv venv
 ```
 
-Activate the environment:
-* **Windows (PowerShell):** `.\venv\Scripts\Activate.ps1`
-* **Windows (CMD):** `.\venv\Scripts\activate.bat`
-* **Mac/Linux:** `source venv/bin/activate`
+### 2. Activate the Environment
+```powershell
+# On Windows:
+.\venv\Scripts\activate
 
-### 4. Install Dependencies
-```bash
+# On Mac/Linux:
+# source venv/bin/activate
+```
+
+### 3. Install Dependencies
+```powershell
 pip install -r requirements.txt
 ```
 
-### 5. Export to ONNX (Low Latency Runtime)
-To achieve fast inference, convert the raw PyTorch model into an ONNX model. Simply run the included export script.
-```bash
+### 4. Optimize the Model (ONNX Export)
+This step converts the 2.2GB PyTorch weights into a highly optimized 3MB ONNX model for lightning-fast inference on the CPU.
+```powershell
 python export_onnx.py
 ```
-*This will create a new folder called `onnx_model` containing the optimized model and extracted `vocab.txt`.*
+*(You will see a "Export complete!" message once this finishes.)*
 
----
-
-## 🏃‍♂️ Running the Application
-
-### The Easy Way (Windows)
-Double click the `start_app.bat` script, or run it through the terminal:
-```bash
+### 5. Start the Application
+You can now start both the backend API and the frontend UI with a single command:
+```powershell
 .\start_app.bat
 ```
-This script automatically activates the `venv`, launches the FastAPI backend in the background, waits a few seconds, and brings up the Streamlit frontend.
 
-### Manual Launch
-If you are on Mac/Linux or want to launch them independently:
-
-**1. Start the API:**
-```bash
-uvicorn api:app --host 0.0.0.0 --port 8000
-```
-
-**2. Start the Frontend:**
-Open a separate terminal window/tab:
-```bash
-streamlit run app.py
-```
-
-The UI will be accessible at `http://localhost:8501`.
+Once running:
+- **Frontend UI:** Open your browser to `http://localhost:8501`
+- **Backend API:** Running on `http://localhost:8000`
 
 ---
-
-## 🧠 Adjusting Categories
-If you ever retrain your classifier with less categories (ex: Binary "Hate" vs "Not Hate" or map raw ID integers), simply modify the `LABEL_MAPPING` dictionary located at the top of `api.py`. The frontend will automatically adapt to the new mappings!
+**Note:** To stop the app abruptly, press `Ctrl + C` in the two terminal windows that were spawned by the batch script.
