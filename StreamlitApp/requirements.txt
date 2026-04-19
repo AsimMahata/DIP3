@@ -13,3 +13,5 @@ emoji
 langdetect
 onnxscript
 onnx
+huggingface_hub
+python-dotenv

@@ -26,6 +26,7 @@ import torch
 import torch.nn as nn
 from transformers import AutoTokenizer, AutoModel
 from lime.lime_text import LimeTextExplainer
+from huggingface_hub import hf_hub_download
 
 try:
     import emoji
@@ -37,35 +38,34 @@ try:
 except ImportError:
     ort = None
 
+import uvicorn
+
 app = FastAPI(title="Multilingual Abuse Detection API")
 
-# ── Paths ──────────────────────────────────────────────────
-MODEL_PATH = "./model"
-ONNX_MODEL_PATH = "./onnx_model/model.onnx"
+# ── Paths & Env Variables ──────────────────────────────────
+MODEL_ID = "artyuishere/multi-lang-abuse-detection"
 MAX_LEN = 128
-THRESHOLD = 0.6  # default; can be overridden
+THRESHOLD = float(os.environ.get("THRESHOLD", 0.6))
 
 # ── Language mappings ──────────────────────────────────────
-def get_language_mappings(model_path):
-    lang_file = os.path.join(model_path, "languages.json")
-    if os.path.exists(lang_file):
-        try:
-            with open(lang_file, "r", encoding="utf-8") as f:
-                langs = json.load(f)
-            return {l.lower(): i for i, l in enumerate(langs)}
-        except Exception as e:
-            print(f"Error loading languages.json: {e}")
+def get_language_mappings(model_id):
+    try:
+        lang_file = hf_hub_download(repo_id=model_id, filename="languages.json")
+        with open(lang_file, "r", encoding="utf-8") as f:
+            langs = json.load(f)
+        return {l.lower(): i for i, l in enumerate(langs)}
+    except Exception as e:
+        print(f"Warning: Could not load languages.json from hub: {e}")
             
     # Fallback to reading from heads.pt if no languages.json
-    heads_path = os.path.join(model_path, "heads.pt")
     num_langs = 3 # default
-    if os.path.exists(heads_path):
-        try:
-            heads = torch.load(heads_path, map_location="cpu", weights_only=True)
-            if "weight" in heads["language_head"]:
-                num_langs = heads["language_head"]["weight"].shape[0]
-        except Exception as e:
-            print(f"Error reading shape from heads.pt: {e}")
+    try:
+        heads_path = hf_hub_download(repo_id=model_id, filename="heads.pt")
+        heads = torch.load(heads_path, map_location="cpu", weights_only=True)
+        if "weight" in heads["language_head"]:
+            num_langs = heads["language_head"]["weight"].shape[0]
+    except Exception as e:
+        print(f"Warning: Could not read shape from heads.pt: {e}")
             
     # Default names if strictly not matched
     langs = ["english", "hinglish", "banglish", "kannada", "malayalam", "tamil", "bengali", "hindi"]
@@ -74,7 +74,7 @@ def get_language_mappings(model_path):
             langs.append(f"language_{i}")
     return {l: i for i, l in enumerate(langs[:num_langs])}
 
-LANG_TO_IDX = get_language_mappings(MODEL_PATH)
+LANG_TO_IDX = get_language_mappings(MODEL_ID)
 IDX_TO_LANG = {v: k for k, v in LANG_TO_IDX.items()}
 NUM_LANGUAGES = len(LANG_TO_IDX)
 
@@ -169,7 +169,7 @@ class MultiTaskAbuseDetector(nn.Module):
         super().__init__()
         # Use 'eager' attention so we can get attention weights out. 
         # SDPA (the default in PyTorch 2+) does not support output_attentions=True.
-        self.backbone = AutoModel.from_pretrained(MODEL_PATH, attn_implementation="eager")
+        self.backbone = AutoModel.from_pretrained(MODEL_ID, attn_implementation="eager")
         hidden = self.backbone.config.hidden_size  # 1024
         self.dropout = nn.Dropout(0.1)
         self.offensive_head = nn.Linear(hidden, 1)
@@ -193,35 +193,49 @@ class MultiTaskAbuseDetector(nn.Module):
 print("Initializing model...")
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
-
-# Build the model and load the custom heads
-model = MultiTaskAbuseDetector()
-heads_path = os.path.join(MODEL_PATH, "heads.pt")
-if os.path.exists(heads_path):
-    heads = torch.load(heads_path, map_location="cpu", weights_only=True)
-    model.offensive_head.load_state_dict(heads["offensive_head"])
-    model.language_head.load_state_dict(heads["language_head"])
-    model.dropout.load_state_dict(heads["dropout"])
-    print("Custom heads loaded from heads.pt [OK]")
-else:
-    print("WARNING: heads.pt not found -- using random heads!")
-
-model.to(DEVICE)
-model.eval()
-print(f"PyTorch model loaded on {DEVICE} [OK]")
+print(f"Loading tokenizer from {MODEL_ID}...")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Try loading ONNX for faster inference
 onnx_session = None
-if ort is not None and os.path.exists(ONNX_MODEL_PATH):
+if ort is not None:
     try:
+        print(f"Downloading ONNX model and weights from {MODEL_ID}...")
+        hf_hub_download(repo_id=MODEL_ID, filename="model.onnx.data")
+        onnx_model_path = hf_hub_download(repo_id=MODEL_ID, filename="model.onnx")
         onnx_session = ort.InferenceSession(
-            ONNX_MODEL_PATH,
+            onnx_model_path,
             providers=["CPUExecutionProvider"]
         )
         print("ONNX model loaded for inference [OK]")
     except Exception as e:
         print(f"Failed to load ONNX model: {e}")
+
+_pytorch_model = None
+
+def get_pytorch_model():
+    """Lazy load the PyTorch backbone only when needed to save memory."""
+    global _pytorch_model
+    if _pytorch_model is not None:
+        return _pytorch_model
+        
+    print(f"Lazy loading PyTorch model from {MODEL_ID}...")
+    model = MultiTaskAbuseDetector()
+    try:
+        heads_path = hf_hub_download(repo_id=MODEL_ID, filename="heads.pt")
+        heads = torch.load(heads_path, map_location="cpu", weights_only=True)
+        model.offensive_head.load_state_dict(heads["offensive_head"])
+        model.language_head.load_state_dict(heads["language_head"])
+        model.dropout.load_state_dict(heads["dropout"])
+        print("Custom heads loaded from HF Hub [OK]")
+    except Exception as e:
+        print(f"WARNING: heads.pt not found on Hub -- using random heads! {e}")
+
+    model.to(DEVICE)
+    model.eval()
+    _pytorch_model = model
+    print(f"PyTorch model loaded on {DEVICE} [OK]")
+    return _pytorch_model
 
 # LIME explainer (binary: Clean vs Offensive)
 explainer = LimeTextExplainer(class_names=["Clean", "Offensive"])
@@ -237,6 +251,7 @@ def predict_pytorch(text: str):
     )
     inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
 
+    model = get_pytorch_model()
     with torch.no_grad():
         out = model(
             input_ids=inputs["input_ids"],
@@ -300,35 +315,50 @@ def predict_probabilities_for_lime(texts):
     """
     start_time = time.time()
     
-    # ONNX model was likely exported with strict batch_size=1 (no dynamic axes)
-    # We must predict sequentially, but we can still print progress to the console
+    # We now batch the tokenizations which is up to 100x faster than looping
+    cleaned_texts = [preprocess_text(t) for t in texts]
+    
     if onnx_session is not None:
-        all_probs = []
-        for i, text in enumerate(texts):
-            if i % 20 == 0 and i > 0:
-                elapsed = time.time() - start_time
-                print(f"  [LIME Batch] ONNX Processed {i}/{len(texts)} in {elapsed:.2f}s...")
-                
-            cleaned = preprocess_text(text)
-            inputs = tokenizer(
-                cleaned, return_tensors="np",
-                max_length=MAX_LEN, truncation=True, padding="max_length"
-            )
-            ort_inputs = {
-                "input_ids": inputs["input_ids"].astype(np.int64),
-                "attention_mask": inputs["attention_mask"].astype(np.int64),
-            }
-            outputs = onnx_session.run(None, ort_inputs)
-            offensive_logit = outputs[0][0, 0]  # shape: (1, 1) or scalar
-            off_prob = float(1.0 / (1.0 + np.exp(-offensive_logit)))
+        inputs = tokenizer(
+            cleaned_texts, return_tensors="np",
+            max_length=MAX_LEN, truncation=True, padding="max_length"
+        )
+        
+        try:
+            batch_size = 16
+            all_logits = []
             
-            all_probs.append([1.0 - off_prob, off_prob])
+            for i in range(0, len(texts), batch_size):
+                ort_inputs = {
+                    "input_ids": inputs["input_ids"][i:i+batch_size].astype(np.int64),
+                    "attention_mask": inputs["attention_mask"][i:i+batch_size].astype(np.int64),
+                }
+                outputs = onnx_session.run(None, ort_inputs)
+                all_logits.append(outputs[0][:, 0])
+                
+            offensive_logits = np.concatenate(all_logits)  # shape: (N,)
+            off_probs = 1.0 / (1.0 + np.exp(-offensive_logits))
+            all_probs = np.column_stack((1.0 - off_probs, off_probs))
+            
+        except Exception as e:
+            print(f"  [LIME] Full Batch ONNX failed ({e}), falling back to iteration...")
+            all_probs = []
+            for i in range(len(texts)):
+                ort_inputs = {
+                    "input_ids": inputs["input_ids"][i:i+1].astype(np.int64),
+                    "attention_mask": inputs["attention_mask"][i:i+1].astype(np.int64),
+                }
+                outputs = onnx_session.run(None, ort_inputs)
+                offensive_logit = outputs[0][0, 0]
+                off_prob = float(1.0 / (1.0 + np.exp(-offensive_logit)))
+                all_probs.append([1.0 - off_prob, off_prob])
+            all_probs = np.array(all_probs)
             
         elapsed = time.time() - start_time
-        print(f"  [LIME Summary] Evaluated {len(texts)} samples via sequential ONNX in {elapsed:.2f}s")
-        return np.array(all_probs)
+        print(f"  [LIME Summary] Evaluated {len(texts)} samples via ONNX in {elapsed:.2f}s")
+        return all_probs
     else:
-        # Fallback if ONNX is missing
+        # Fallback if ONNX is missing (OOM warning if batched, so we keep sequential here)
         probs = []
         for i, text in enumerate(texts):
             if i % 10 == 0:
@@ -399,6 +429,7 @@ def pipeline_endpoint(req: PredictRequest):
 
         # Step 4: Model inference
         inputs = {k: v.to(DEVICE) for k, v in tokens_padded.items()}
+        model = get_pytorch_model()
         with torch.no_grad():
             out = model(
                 input_ids=inputs["input_ids"],
@@ -497,6 +528,7 @@ def explain_attention(req: ExplainRequest):
         )
         inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
 
+        model = get_pytorch_model()
         with torch.no_grad():
             out = model(
                 input_ids=inputs["input_ids"],
@@ -544,6 +576,7 @@ def explain_word_attention(req: ExplainRequest):
         )
         inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
 
+        model = get_pytorch_model()
         with torch.no_grad():
             out = model(
                 input_ids=inputs["input_ids"],
@@ -595,3 +628,10 @@ def explain_word_attention(req: ExplainRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 10000))
+    print(f"Starting uvicorn server on port {port}...")
+    uvicorn.run(app, host="0.0.0.0", port=port)
+

@@ -9,7 +9,7 @@ import numpy as np
 st.set_page_config(page_title="Multilingual Abuse Detection", layout="wide")
 
 # Backend API URL
-API_URL = "http://localhost:8000"
+API_URL = "https://artyuishere-multilingual-abuse-api.hf.space"
 
 st.title("Multilingual Abuse Detection System")
 st.markdown("Classify text and explain predictions using LIME and Transformer Attention Visualizations.")
@@ -26,7 +26,7 @@ if analyze_btn and user_input:
     with st.spinner("Analyzing text..."):
         try:
             # ── 1. Get pipeline data (includes prediction + all steps) ──
-            pipe_res = requests.post(f"{API_URL}/pipeline", json={"text": user_input}, timeout=60)
+            pipe_res = requests.post(f"{API_URL}/pipeline", json={"text": user_input}, timeout=90)
 
             if pipe_res.status_code == 200:
                 data = pipe_res.json()
@@ -280,7 +280,6 @@ if analyze_btn and user_input:
                         lime_res = requests.post(
                             f"{API_URL}/explain_lime",
                             json={"text": user_input, "target_class_idx": 1},
-                            timeout=120,
                         )
                         if lime_res.status_code == 200:
                             attributions = lime_res.json().get("attributions", [])
@@ -289,7 +288,13 @@ if analyze_btn and user_input:
                                 attr_df = attr_df.sort_values(by="Weight", ascending=True)
                                 fig_lime = px.bar(attr_df, x="Weight", y="Token", orientation='h',
                                                    color="Weight", color_continuous_scale="RdBu_r")
-                                fig_lime.update_layout(title="Feature Importance (LIME)", height=400)
+                                fig_lime.update_layout(
+                                    title="Feature Importance (LIME)", 
+                                    height=400,
+                                    paper_bgcolor="rgba(0,0,0,0)",
+                                    plot_bgcolor="rgba(0,0,0,0)",
+                                    font=dict(color="#f8fafc")
+                                )
                                 st.plotly_chart(fig_lime, use_container_width=True)
                             else:
                                 st.info("No strong token attributions found.")
@@ -305,18 +310,33 @@ if analyze_btn and user_input:
                             tokens = attn_data["tokens"]
                             attention_matrix = attn_data["attention_matrix"]
 
+                            n = len(tokens)
+                            cell_size = 90  # px per token — larger = more spread out
+                            fig_size = max(500, n * cell_size)
+
                             fig_hm = go.Figure(data=go.Heatmap(
                                 z=attention_matrix, x=tokens, y=tokens,
-                                colorscale='Viridis'
+                                colorscale='Viridis',
+                                xgap=1, ygap=1,
                             ))
                             fig_hm.update_layout(
                                 title="Token-to-Token Attention (Average across Heads)",
-                                height=600,
-                                margin=dict(l=50, r=50, t=50, b=50),
-                                xaxis_nticks=len(tokens),
-                                yaxis_nticks=len(tokens),
+                                height=fig_size,
+                                margin=dict(l=100, r=20, t=60, b=100),
+                                xaxis=dict(
+                                    tickangle=-45,
+                                    tickfont=dict(size=12, color="#f8fafc"),
+                                    title="",
+                                ),
+                                yaxis=dict(
+                                    tickfont=dict(size=12, color="#f8fafc"),
+                                    title="",
+                                    autorange="reversed",
+                                ),
+                                paper_bgcolor="rgba(0,0,0,0)",
+                                plot_bgcolor="rgba(0,0,0,0)",
+                                font=dict(color="#f8fafc"),
                             )
-                            fig_hm.update_yaxes(autorange="reversed")
                             st.plotly_chart(fig_hm, use_container_width=True)
                         else:
                             st.error(f"Error getting Attention explanations: {attn_res.text}")
@@ -325,6 +345,6 @@ if analyze_btn and user_input:
                 st.error(f"Backend API error: {pipe_res.status_code} - {pipe_res.text}")
 
         except requests.exceptions.ConnectionError:
-            st.error("Failed to connect to the backend server. Please make sure the FastAPI server is running.")
+            st.error("Cannot reach the cloud server. Check your internet connection or the HF Space status.")
         except requests.exceptions.Timeout:
-            st.error("Request timed out. Try again with shorter text.")
+            st.warning("The Hugging Face server was sleeping and is now waking up (this takes ~60 seconds). Please click Analyze again in a moment!")
