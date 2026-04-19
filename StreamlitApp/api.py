@@ -42,12 +42,41 @@ app = FastAPI(title="Multilingual Abuse Detection API")
 MODEL_PATH = "./model"
 ONNX_MODEL_PATH = "./onnx_model/model.onnx"
 MAX_LEN = 128
-THRESHOLD = 0.5  # default; can be overridden
+THRESHOLD = 0.6  # default; can be overridden
 
 # ── Language mappings ──────────────────────────────────────
-LANG_TO_IDX = {"english": 0, "hinglish": 1, "banglish": 2}
+def get_language_mappings(model_path):
+    lang_file = os.path.join(model_path, "languages.json")
+    if os.path.exists(lang_file):
+        try:
+            with open(lang_file, "r", encoding="utf-8") as f:
+                langs = json.load(f)
+            return {l.lower(): i for i, l in enumerate(langs)}
+        except Exception as e:
+            print(f"Error loading languages.json: {e}")
+            
+    # Fallback to reading from heads.pt if no languages.json
+    heads_path = os.path.join(model_path, "heads.pt")
+    num_langs = 3 # default
+    if os.path.exists(heads_path):
+        try:
+            heads = torch.load(heads_path, map_location="cpu", weights_only=True)
+            if "weight" in heads["language_head"]:
+                num_langs = heads["language_head"]["weight"].shape[0]
+        except Exception as e:
+            print(f"Error reading shape from heads.pt: {e}")
+            
+    # Default names if strictly not matched
+    langs = ["english", "hinglish", "banglish", "kannada", "malayalam", "tamil", "bengali", "hindi"]
+    if num_langs > len(langs):
+        for i in range(len(langs), num_langs):
+            langs.append(f"language_{i}")
+    return {l: i for i, l in enumerate(langs[:num_langs])}
+
+LANG_TO_IDX = get_language_mappings(MODEL_PATH)
 IDX_TO_LANG = {v: k for k, v in LANG_TO_IDX.items()}
-NUM_LANGUAGES = 3
+NUM_LANGUAGES = len(LANG_TO_IDX)
+
 
 # ── Preprocessing (from training notebook) ─────────────────
 ENG_ABBREVS = {
@@ -67,33 +96,49 @@ ENG_ABBREVS = {
     "ikr": "I know right", "jk": "just kidding",
     "sfw": "safe for work", "nsfw": "not safe for work",
 }
+
 DESI_ABBREVS = {
-    # "yaar": "friend", "bhai": "brother", "abbe": "hey",
-    # "sala": "jerk", "saale": "jerk", "bakwas": "nonsense",
-    # "chup": "silent", "aukaat": "worth", "ganda": "dirty",
-    # "bura": "bad", "mast": "awesome", "kya": "what",
-    # "toh": "then", "nahi": "no", "bc": "behanchod",
-    # "bsdk": "bahenchod ka duffer", "mc": "madarchod",
-    # "bhen": "sister", "behen": "sister",
-    # "bhenchod": "sisterfucker", "chutiya": "idiot",
-    # "gaandu": "asshole", "jatt": "cool", "jigri": "close friend",
-    # "panga": "trouble", "dimaag": "brain", "pakao": "boring",
-    # "tharki": "pervert", "chamcha": "sycophant",
-    # "kamina": "scoundrel", "lauda": "penis", "chut": "vagina",
-    # "lund": "penis",
-    # "vai": "brother", "apu": "sister", "pagla": "crazy",
-    # "baje": "bad", "dhor": "catch", "boro": "big",
-    # "choto": "small", "khub": "very", "jibon": "life",
-    # "bhalo": "good", "kharap": "bad", "ki": "what",
-    # "keno": "why", "kothay": "where", "kobe": "when",
-    # "kemon": "how", "tui": "you", "tumi": "you (formal)",
-    # "apni": "you (very formal)", "amar": "my", "tomar": "your",
-    # "tor": "your", "ei": "this", "sei": "that", "kintu": "but",
-    # "tobe": "then", "ar": "and", "o": "also", "na": "no",
-    # "haoa": "to be", "thako": "stay", "jao": "go",
-    # "aslo": "came", "dibo": "will give", "nibo": "will take",
-    # "koro": "do", "kris": "did", "korchis": "doing",
-    # "korbos": "will do",
+    # --- Generic Hinglish & North Indian ---
+    "bc": "behanchod",
+    "mc": "madarchod",
+    "bhenchod": "sisterfucker",
+    "mkc": "maa ki chut",
+    "tmkc": "teri maa ki chut",
+    "bck": "behenchod",
+    "pk": "pagal",
+    "gnd": "gandu",
+    "chtiya": "chutiya",
+    "bchd": "behenchod",
+    "bsdk": "bhosdike",
+    
+    # --- Banglish (Bengali) Slangs ---
+    "bcoda": "bokachoda",
+    "mgi": "magi",
+    "bal": "baal",     # often meaning bullshit/nonsense
+    
+    # --- Tanglish (Tamil) Slangs ---
+    "otha": "ommala",
+    "ommale": "ommaala",
+    "punda": "pundai",
+    "tp": "thevidiya paiyan",
+    "mairu": "myre",
+    "gotha": "gothaa",
+    
+    # --- Manglish (Malayalam) Slangs ---
+    "myr": "myre",
+    "thendi": "beggar",
+    "thayoli": "motherfucker",
+    "pooran": "asshole",
+    
+    # --- Kanglish (Kannada) Slangs ---
+    "shata": "shata",
+    "loosu": "loosu",
+    
+    # --- Marathi Slangs ---
+    "aiz": "aizavadya",
+    "lavdya": "lavdya",
+    "bhadkya": "bhadkhau",
+    "raand": "raand",
 }
 
 

@@ -27,7 +27,10 @@ MODEL_PATH = "./model"
 ONNX_SAVE_DIR = "./onnx_model"
 ONNX_FILE = os.path.join(ONNX_SAVE_DIR, "model.onnx")
 MAX_LEN = 128
-NUM_LANGUAGES = 3
+import json
+with open(os.path.join(MODEL_PATH, "languages.json"), "r") as f:
+    LANGS = json.load(f)
+NUM_LANGUAGES = len(LANGS)
 
 
 # -- Model Definition (same as training notebook) --
@@ -98,7 +101,7 @@ def main():
     off_prob = torch.sigmoid(off_logits).item()
     lang_probs = torch.softmax(lang_logits, dim=-1).numpy()[0]
     print(f"   Offensive prob: {off_prob:.4f}")
-    print(f"   Language probs: {dict(zip(['en', 'hi', 'bn'], [f'{p:.4f}' for p in lang_probs]))}")
+    print(f"   Language probs: {dict(zip(LANGS, [f'{p:.4f}' for p in lang_probs]))}")
 
     # 5. Export to ONNX
     print("\n5. Exporting to ONNX...")
@@ -141,7 +144,7 @@ def main():
         onnx_lang_probs = onnx_lang_exp / onnx_lang_exp.sum()
 
         print(f"   ONNX offensive prob: {onnx_off_prob:.4f}")
-        print(f"   ONNX language probs: {dict(zip(['en', 'hi', 'bn'], [f'{p:.4f}' for p in onnx_lang_probs]))}")
+        print(f"   ONNX language probs: {dict(zip(LANGS, [f'{p:.4f}' for p in onnx_lang_probs]))}")
 
         # Check closeness
         diff_off = abs(off_prob - onnx_off_prob)

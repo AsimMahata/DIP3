@@ -18,8 +18,9 @@ col1, col2 = st.columns([1, 1])
 
 with col1:
     st.subheader("Input Text")
-    user_input = st.text_area("Enter text to analyze", height=150, placeholder="Type something here...")
-    analyze_btn = st.button("Analyze", type="primary")
+    with st.form("analysis_form"):
+        user_input = st.text_area("Enter text to analyze", height=150, placeholder="Type something here...", max_chars=2000)
+        analyze_btn = st.form_submit_button("Analyze", type="primary")
 
 if analyze_btn and user_input:
     with st.spinner("Analyzing text..."):
@@ -62,7 +63,7 @@ if analyze_btn and user_input:
                     fig_lang = px.bar(lang_df, x="Confidence", y="Language", orientation='h',
                                       title="Detected Language")
                     fig_lang.update_traces(marker_color='#3498db')
-                    fig_lang.update_layout(height=180, margin=dict(l=0, r=0, t=30, b=0),
+                    fig_lang.update_layout(height=max(180, len(lang_df) * 30), margin=dict(l=0, r=0, t=30, b=0),
                                            xaxis_range=[0, 1])
                     st.plotly_chart(fig_lang, use_container_width=True)
 
@@ -200,7 +201,7 @@ if analyze_btn and user_input:
                                     <div style="color:#95a5a6; font-size:22px;">|</div>
                                     <div style="background:#3498db; color:white; padding:10px 20px; border-radius:8px; font-weight:600;">
                                         Language Head<br>
-                                        <span style="font-size:12px;">Linear(1024 -> 3) -> Softmax</span>
+                                        <span style="font-size:12px;">Linear(1024 -> {len(data['language_probs'])}) -> Softmax</span>
                                     </div>
                                 </div>
                             </div>
@@ -222,13 +223,12 @@ if analyze_btn and user_input:
 
                     with out2:
                         st.markdown("**Language Head**")
-                        for lang_name, logit_val, prob_val in zip(
-                            ["English", "Hinglish", "Banglish"],
-                            data["language_logits"],
-                            [lang_probs.get("english", 0), lang_probs.get("hinglish", 0), lang_probs.get("banglish", 0)]
-                        ):
+                        lang_keys = list(lang_probs.keys())
+                        for i, lang_name in enumerate(lang_keys):
+                            logit_val = data["language_logits"][i]
+                            prob_val = lang_probs[lang_name]
                             marker = "> " if lang_name.lower() == language else "  "
-                            st.markdown(f"{marker}**{lang_name}**: logit=`{logit_val}` -> prob=**`{prob_val}`**")
+                            st.markdown(f"{marker}**{lang_name.capitalize()}**: logit=`{logit_val}` -> prob=**`{prob_val}`**")
 
                     # ── Word Attention ─────────────────────
                     if data.get("attention_words"):
