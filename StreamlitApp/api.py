@@ -18,6 +18,7 @@ Saved artefacts in ./model/:
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import numpy as np
+import time
 import os
 import re
 import json
@@ -297,12 +298,48 @@ def predict_probabilities_for_lime(texts):
     LIME requires: list[str] → np.array of shape (n, 2)
     Columns: [P(clean), P(offensive)]
     """
-    probs = []
-    for text in texts:
-        result = predict(text)
-        off = result["offensive_prob"]
-        probs.append([1.0 - off, off])
-    return np.array(probs)
+    start_time = time.time()
+    
+    # ONNX model was likely exported with strict batch_size=1 (no dynamic axes)
+    # We must predict sequentially, but we can still print progress to the console
+    if onnx_session is not None:
+        all_probs = []
+        for i, text in enumerate(texts):
+            if i % 20 == 0 and i > 0:
+                elapsed = time.time() - start_time
+                print(f"  [LIME Batch] ONNX Processed {i}/{len(texts)} in {elapsed:.2f}s...")
+                
+            cleaned = preprocess_text(text)
+            inputs = tokenizer(
+                cleaned, return_tensors="np",
+                max_length=MAX_LEN, truncation=True, padding="max_length"
+            )
+            ort_inputs = {
+                "input_ids": inputs["input_ids"].astype(np.int64),
+                "attention_mask": inputs["attention_mask"].astype(np.int64),
+            }
+            outputs = onnx_session.run(None, ort_inputs)
+            offensive_logit = outputs[0][0, 0]  # shape: (1, 1) or scalar
+            off_prob = float(1.0 / (1.0 + np.exp(-offensive_logit)))
+            
+            all_probs.append([1.0 - off_prob, off_prob])
+            
+        elapsed = time.time() - start_time
+        print(f"  [LIME Summary] Evaluated {len(texts)} samples via sequential ONNX in {elapsed:.2f}s")
+        return np.array(all_probs)
+    else:
+        # Fallback if ONNX is missing
+        probs = []
+        for i, text in enumerate(texts):
+            if i % 10 == 0:
+                print(f"  [LIME Batch] PyTorch Inference: {i}/{len(texts)} samples...")
+            result = predict(text)
+            off = result["offensive_prob"]
+            probs.append([1.0 - off, off])
+            
+        elapsed = time.time() - start_time
+        print(f"  [LIME Batch] Evaluated {len(texts)} samples via PyTorch in {elapsed:.2f}s")
+        return np.array(probs)
 
 
 # ── Request / Response models ─────────────────────────────
@@ -425,16 +462,28 @@ def pipeline_endpoint(req: PredictRequest):
 @app.post("/explain_lime")
 def explain_lime(req: ExplainRequest):
     try:
+        print(f"\n{'='*50}")
+        print(f"[LIME Explainer] Starting analysis...")
+        print(f"[LIME Explainer] Target: '{req.text[:50]}...'")
+        start_lime = time.time()
+        
         exp = explainer.explain_instance(
             req.text,
             predict_probabilities_for_lime,
             num_features=10,
-            num_samples=300,
+            num_samples=100,  # Reduced from 300 to speed up API response
             labels=(req.target_class_idx,)
         )
         attributions = exp.as_list(label=req.target_class_idx)
+        
+        total_time = time.time() - start_lime
+        print(f"[LIME Explainer] SUCCESS! All 100 samples evaluated.")
+        print(f"[LIME Explainer] Total elapsed time: {total_time:.2f} seconds")
+        print(f"{'='*50}\n")
+        
         return {"attributions": attributions}
     except Exception as e:
+        print(f"[LIME Explainer] ERROR: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
