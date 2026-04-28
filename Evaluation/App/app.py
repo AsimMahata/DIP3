@@ -5,10 +5,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
 
-# Configure Streamlit page
 st.set_page_config(page_title="Multilingual Abuse Detection", layout="wide")
 
-# Backend API URL
 API_URL = "https://artyuishere-multilingual-abuse-api.hf.space"
 
 st.title("Multilingual Abuse Detection System")
@@ -25,7 +23,6 @@ with col1:
 if analyze_btn and user_input:
     with st.spinner("Analyzing text..."):
         try:
-            # ── 1. Get pipeline data (includes prediction + all steps) ──
             pipe_res = requests.post(f"{API_URL}/pipeline", json={"text": user_input}, timeout=90)
 
             if pipe_res.status_code == 200:
@@ -36,11 +33,9 @@ if analyze_btn and user_input:
                 language = data["language"]
                 lang_probs = data["language_probs"]
 
-                # ── Results column ────────────────────────────
                 with col2:
                     st.subheader("Classification Results")
 
-                    # Toxicity bar + clean bar
                     plot_preds = [
                         {"label": "Toxic / Offensive", "score": off_prob},
                         {"label": "Clean / Neutral", "score": 1.0 - off_prob},
@@ -69,7 +64,6 @@ if analyze_btn and user_input:
 
                 st.divider()
 
-                # Status badge
                 if is_toxic:
                     st.error(f"**Status: TOXIC / OFFENSIVE** - "
                              f"Confidence: {off_prob:.1%} | Language: {language.capitalize()}")
@@ -77,18 +71,14 @@ if analyze_btn and user_input:
                     st.success(f"**Status: CLEAN** - "
                                f"Confidence: {1 - off_prob:.1%} | Language: {language.capitalize()}")
 
-                # ══════════════════════════════════════════════
-                # PIPELINE VISUALIZATION
-                # ══════════════════════════════════════════════
+     
                 with st.expander("Explore Processing Pipeline Details"):
                     st.markdown("See exactly how your text flows through each stage of the model.")
 
-                    # ── Raw Input ─────────────────────────
                     st.markdown("---")
                     st.markdown("### Raw Input")
                     st.code(data["raw_text"], language=None)
 
-                    # ── Preprocessing ─────────────────────
                     st.markdown("### Preprocessing")
                     st.markdown("*URLs removed, emojis converted, repeated chars collapsed, abbreviations expanded, lowercased*")
 
@@ -100,17 +90,14 @@ if analyze_btn and user_input:
                         st.markdown("**After:**")
                         st.code(data["preprocessed_text"], language=None)
 
-                    # ── Tokenization ──────────────────────
                     st.markdown("### Tokenization (XLM-RoBERTa SentencePiece)")
                     st.markdown(f"Text split into **{data['num_raw_tokens']}** subword tokens by the SentencePiece tokenizer.")
 
-                    # Show tokens as colored chips
                     token_html = ""
                     for i, (tok, tid) in enumerate(zip(data["raw_tokens"], data["raw_token_ids"])):
-                        # Alternate colors for readability
                         bg = "#2c3e50" if i % 2 == 0 else "#34495e"
                         if tok in ("<s>", "</s>"):
-                            bg = "#8e44ad"  # special tokens in purple
+                            bg = "#8e44ad"  
                         token_html += (
                             f'<span style="display:inline-block; background:{bg}; color:#ecf0f1; '
                             f'padding:4px 8px; margin:2px; border-radius:6px; font-family:monospace; '
@@ -119,7 +106,6 @@ if analyze_btn and user_input:
                     st.markdown(token_html, unsafe_allow_html=True)
                     st.caption("Hover over tokens to see their numeric IDs. Purple = special tokens <s> and </s>.")
 
-                    # ── Padding + Attention Mask ──────────
                     st.markdown("### Padding & Attention Mask")
                     st.markdown(
                         f"Sequence padded to **{data['max_length']}** tokens: "
@@ -127,7 +113,6 @@ if analyze_btn and user_input:
                         f"**{data['num_padded_tokens']}** padding."
                     )
 
-                    # Visual bar showing real vs padding
                     fig_pad = go.Figure()
                     fig_pad.add_trace(go.Bar(
                         x=[data["num_real_tokens"]], y=["Sequence"],
@@ -149,7 +134,6 @@ if analyze_btn and user_input:
                     )
                     st.plotly_chart(fig_pad, use_container_width=True)
 
-                    # Attention mask visual
                     mask_sample = data["attention_mask_sample"]
                     mask_html = '<div style="font-family:monospace; font-size:12px; line-height:1.8;">'
                     mask_html += '<b>Attention Mask (first 20):</b> '
@@ -161,7 +145,6 @@ if analyze_btn and user_input:
                     st.markdown(mask_html, unsafe_allow_html=True)
                     st.caption("1 = real token (model reads it), 0 = padding (model ignores it)")
 
-                    # ── Model Architecture ────────────────
                     st.markdown("### Model Inference")
                     st.markdown("The padded input flows through the multi-task transformer:")
 
@@ -210,7 +193,6 @@ if analyze_btn and user_input:
                     """)
                     st.markdown(arch_html.replace('\n', ''), unsafe_allow_html=True)
 
-                    # ── Raw Outputs ───────────────────────
                     st.markdown("### Raw Model Outputs")
 
                     out1, out2 = st.columns(2)
@@ -230,7 +212,6 @@ if analyze_btn and user_input:
                             marker = "> " if lang_name.lower() == language else "  "
                             st.markdown(f"{marker}**{lang_name.capitalize()}**: logit=`{logit_val}` -> prob=**`{prob_val}`**")
 
-                    # ── Word Attention ─────────────────────
                     if data.get("attention_words"):
                         st.markdown("### What the Model Focused On")
                         st.markdown("CLS-token attention from the last transformer layer, averaged across all 16 heads.")
@@ -238,7 +219,6 @@ if analyze_btn and user_input:
                         words = data["attention_words"]
                         weights = data["attention_weights"]
 
-                        # Highlighted text
                         hl_html = '<div style="background:#1a1a2e; border-radius:10px; padding:15px; line-height:2.2; font-size:15px; margin:8px 0;">'
                         for w, wt in zip(words, weights):
                             r = int(231 * wt + 40 * (1 - wt))
@@ -255,7 +235,6 @@ if analyze_btn and user_input:
                         st.markdown(hl_html, unsafe_allow_html=True)
                         st.caption("Brighter = higher attention. Hover for exact values.")
 
-                        # Bar chart
                         attn_df = pd.DataFrame({"Word": words, "Attention": weights}).sort_values("Attention", ascending=True)
                         color_scale = "Reds" if is_toxic else "Greens"
                         fig_attn = px.bar(attn_df, x="Attention", y="Word", orientation='h',
@@ -268,9 +247,7 @@ if analyze_btn and user_input:
                         )
                         st.plotly_chart(fig_attn, use_container_width=True)
 
-                # ══════════════════════════════════════════════
-                # EXPLAINABILITY TABS
-                # ══════════════════════════════════════════════
+
                 st.header("Explainability Insights")
                 tab1, tab2 = st.tabs(["LIME Token Attributions", "Transformer Attention Visualization"])
 
@@ -311,7 +288,7 @@ if analyze_btn and user_input:
                             attention_matrix = attn_data["attention_matrix"]
 
                             n = len(tokens)
-                            cell_size = 90  # px per token — larger = more spread out
+                            cell_size = 90  
                             fig_size = max(500, n * cell_size)
 
                             fig_hm = go.Figure(data=go.Heatmap(
