@@ -1,8 +1,0 @@
-metric,value
-Accuracy,0.8723
-Macro F1,0.8722
-Micro F1,0.8723
-Weighted F1,0.8722
-ROC-AUC,0.9433
-Avg Precision,0.9405
-MCC,0.7445

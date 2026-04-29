@@ -1,0 +1,14 @@
+fastapi
+pydantic
+numpy
+torch
+transformers
+lime
+huggingface_hub
+emoji
+onnxruntime
+uvicorn
+streamlit
+requests
+pandas
+plotly
